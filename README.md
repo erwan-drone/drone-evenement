@@ -70,5 +70,35 @@ L'app sauvegarde désormais automatiquement l'état du tournoi (équipes, poules
 ### Notes
 
 - La sauvegarde se déclenche automatiquement 1,5 seconde après chaque changement (pas besoin de bouton "Enregistrer").
-- Une seule ligne est utilisée dans la table (`id = 'main'`) : c'est une sauvegarde globale de l'état courant du tournoi, pas un historique de tournois multiples. Si tu veux garder l'historique de chaque tournoi séparément, on peut adapter facilement (un id par tournoi/date).
+- Une seule ligne est utilisée dans la table `tournoi_state` (`id = 'main'`) : c'est une sauvegarde globale de l'état courant du tournoi qui se réécrit en continu.
 - La clé "anon" Supabase est publique par nature (elle est visible dans le code du site) — c'est normal et sans risque ici puisque les données (équipes, scores) ne sont pas sensibles.
+
+## Historique des sauvegardes (onglet dédié)
+
+En plus de la sauvegarde automatique, l'app propose un onglet **Historique des sauvegardes** (icône horloge en haut de l'écran, ou depuis l'accueil) qui permet de sauvegarder l'état du tournoi à la volée, sous un nom choisi, avec la date et l'heure. Chaque sauvegarde nommée reste disponible séparément, et peut être rechargée ou supprimée à tout moment — utile pour garder une trace de chaque tournoi ou de chaque étape (ex. "Camping du Kreisker - J1", "Séminaire Acme - matinée").
+
+Ces sauvegardes nommées sont stockées dans une table séparée, `tournoi_history` (une ligne par sauvegarde), pour ne pas se mélanger avec la sauvegarde automatique de `tournoi_state`.
+
+**Si ton projet Supabase existe déjà**, il faut créer cette nouvelle table une fois : dans le dashboard Supabase, ouvre **SQL Editor > New query**, colle uniquement ce bloc (déjà inclus dans `supabase_setup.sql` mis à jour) et exécute-le :
+
+```sql
+create table if not exists tournoi_history (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  data jsonb not null,
+  created_at timestamptz default now()
+);
+
+alter table tournoi_history enable row level security;
+
+create policy "Lecture publique historique" on tournoi_history
+  for select using (true);
+
+create policy "Écriture publique historique" on tournoi_history
+  for insert with check (true);
+
+create policy "Suppression publique historique" on tournoi_history
+  for delete using (true);
+```
+
+Si tu repars d'un projet Supabase tout neuf, exécuter le fichier `supabase_setup.sql` complet suffit (il crée les deux tables).

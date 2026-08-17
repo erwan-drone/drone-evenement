@@ -20,3 +20,24 @@ create policy "Écriture publique" on tournoi_state
 
 create policy "Mise à jour publique" on tournoi_state
   for update using (true);
+
+-- Historique des sauvegardes nommées (onglet "Historique des sauvegardes")
+-- Contrairement à tournoi_state (une seule ligne "main" auto-sauvegardée),
+-- cette table garde une ligne par sauvegarde nommée par l'utilisateur.
+create table if not exists tournoi_history (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  data jsonb not null,
+  created_at timestamptz default now()
+);
+
+alter table tournoi_history enable row level security;
+
+create policy "Lecture publique historique" on tournoi_history
+  for select using (true);
+
+create policy "Écriture publique historique" on tournoi_history
+  for insert with check (true);
+
+create policy "Suppression publique historique" on tournoi_history
+  for delete using (true);

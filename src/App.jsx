@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Plus, Minus, Trophy, RotateCcw, Users, ChevronRight, ArrowLeft,
   CheckCircle2, Circle, Play, Pause, X, Pencil, Flag, Clock, Repeat, Home, Settings,
+  History, Save, Trash2, Download,
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
@@ -234,6 +235,12 @@ export default function App() {
   // ----- Sauvegarde cloud (Supabase) -----
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // ----- Historique des sauvegardes nommées -----
+  const [historyEntries, setHistoryEntries] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historySaveName, setHistorySaveName] = useState('');
+  const [historyStatus, setHistoryStatus] = useState('');
+
   // Chargement de la dernière sauvegarde au démarrage de l'app
   useEffect(() => {
     let cancelled = false;
@@ -297,6 +304,80 @@ export default function App() {
   function goTournament() { setPhase(tournamentStep); }
   function goFreeplay() { setPhase('freeplay'); }
   function goTournamentStep(step) { setTournamentStep(step); setPhase(step); }
+  function goHistory() { setPhase('history'); }
+
+  // ----- Historique des sauvegardes nommées -----
+  function buildSnapshot() {
+    return {
+      format, teams, numPools, qualifiersPerPool, thirdPlace,
+      pools, round0Pairs, bracketScores, thirdScores, freeHistory,
+      matchDuration, recordGoals, phase: tournamentStep, tournamentStep,
+    };
+  }
+
+  async function fetchHistoryEntries() {
+    setHistoryLoading(true);
+    const { data, error } = await supabase
+      .from('tournoi_history')
+      .select('id, name, created_at')
+      .order('created_at', { ascending: false });
+    if (error) console.error('Erreur de chargement de l\u2019historique :', error);
+    setHistoryEntries(data || []);
+    setHistoryLoading(false);
+  }
+
+  async function saveCurrentAsHistory() {
+    const name = historySaveName.trim();
+    if (!name) { setHistoryStatus('error'); return; }
+    setHistoryStatus('saving');
+    const { error } = await supabase
+      .from('tournoi_history')
+      .insert({ name, data: buildSnapshot() });
+    if (error) {
+      console.error('Erreur de sauvegarde de l\u2019historique :', error);
+      setHistoryStatus('error');
+      return;
+    }
+    setHistorySaveName('');
+    setHistoryStatus('saved');
+    setTimeout(() => setHistoryStatus(''), 1500);
+    fetchHistoryEntries();
+  }
+
+  async function loadHistoryEntry(id) {
+    const { data, error } = await supabase
+      .from('tournoi_history')
+      .select('data')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) { console.error('Erreur de chargement de la sauvegarde :', error); return; }
+    const s = data?.data;
+    if (!s) return;
+    if (s.format) setFormat(s.format);
+    if (s.teams) setTeams(s.teams);
+    if (s.numPools) setNumPools(s.numPools);
+    if (s.qualifiersPerPool) setQualifiersPerPool(s.qualifiersPerPool);
+    if (typeof s.thirdPlace === 'boolean') setThirdPlace(s.thirdPlace);
+    if (s.pools) setPools(s.pools);
+    if (s.round0Pairs) setRound0Pairs(s.round0Pairs);
+    if (s.bracketScores) setBracketScores(s.bracketScores);
+    if (s.thirdScores) setThirdScores(s.thirdScores);
+    if (s.freeHistory) setFreeHistory(s.freeHistory);
+    if (s.matchDuration) setMatchDuration(s.matchDuration);
+    if (typeof s.recordGoals === 'number') setRecordGoals(s.recordGoals);
+    if (s.tournamentStep) setTournamentStep(s.tournamentStep);
+    setPhase(s.phase || s.tournamentStep || 'setup');
+  }
+
+  async function deleteHistoryEntry(id) {
+    const { error } = await supabase.from('tournoi_history').delete().eq('id', id);
+    if (error) { console.error('Erreur de suppression :', error); return; }
+    setHistoryEntries((prev) => prev.filter((e) => e.id !== id));
+  }
+
+  useEffect(() => {
+    if (phase === 'history') fetchHistoryEntries();
+  }, [phase]);
 
   // ----- Chrono -----
   useEffect(() => {
@@ -753,7 +834,10 @@ export default function App() {
           </div>
           <div className="ts-home-content">
             {!publicMode && (
-              <button className="ts-icon-btn ts-home-settings-btn" onClick={() => setPhase('settings')} aria-label="Paramètres"><Settings size={18} /></button>
+              <div className="ts-home-settings-btn" style={{ display: 'flex', gap: 8 }}>
+                <button className="ts-icon-btn" onClick={goHistory} aria-label="Historique des sauvegardes"><History size={18} /></button>
+                <button className="ts-icon-btn" onClick={() => setPhase('settings')} aria-label="Paramètres"><Settings size={18} /></button>
+              </div>
             )}
             <img className="ts-home-logo" src={LOGO_SRC} alt="Drone Result Événements" />
             <div className="ts-home-sub">Choisis un mode pour commencer</div>
@@ -786,10 +870,11 @@ export default function App() {
           <div className="ts-topbar">
             <div className="ts-header" onClick={publicMode ? undefined : goHome} style={publicMode ? { cursor: 'default' } : undefined}>
               <img src={LOGO_SRC} alt="Drone Result Événements" />
-              <span className="ts-display">{inTournament ? 'Tournoi' : phase === 'freeplay' ? 'Match à rotation libre' : 'Paramètres'}</span>
+              <span className="ts-display">{inTournament ? 'Tournoi' : phase === 'freeplay' ? 'Match à rotation libre' : phase === 'history' ? 'Historique des sauvegardes' : 'Paramètres'}</span>
             </div>
             {!publicMode && (
               <div className="ts-row-inline" style={{ gap: 8 }}>
+                <button className="ts-icon-btn" onClick={goHistory} aria-label="Historique des sauvegardes"><History size={16} /></button>
                 <button className="ts-icon-btn" onClick={() => setPhase('settings')} aria-label="Paramètres"><Settings size={16} /></button>
                 <button className="ts-btn-ghost" onClick={goHome}><Home size={15} /> Accueil</button>
               </div>
@@ -1092,6 +1177,60 @@ export default function App() {
               )}
             </>
           )}
+          {phase === 'history' && (
+            <>
+              <div className="ts-panel">
+                <div className="ts-panel-title"><Save size={16} /> Sauvegarder l'état actuel</div>
+                <span className="ts-field-label">Nom de cette sauvegarde (ex : Camping du Kreisker - J1)</span>
+                <div className="ts-row-inline" style={{ gap: 10, alignItems: 'stretch' }}>
+                  <input
+                    className="ts-input"
+                    style={{ flex: 1, minWidth: 200 }}
+                    type="text"
+                    value={historySaveName}
+                    onChange={(e) => { setHistorySaveName(e.target.value); if (historyStatus === 'error') setHistoryStatus(''); }}
+                    placeholder="Nom du tournoi ou de l'étape"
+                  />
+                  <button className="ts-btn" onClick={saveCurrentAsHistory} disabled={historyStatus === 'saving'}>
+                    <Save size={16} /> {historyStatus === 'saving' ? 'Sauvegarde…' : historyStatus === 'saved' ? 'Sauvegardé !' : 'Sauvegarder'}
+                  </button>
+                </div>
+                {historyStatus === 'error' && (
+                  <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 8 }}>Merci de saisir un nom avant de sauvegarder.</div>
+                )}
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+                  Enregistre l'état actuel du tournoi (équipes, poules, scores, phase finale) sous ce nom, avec la date du jour. Cela s'ajoute à la sauvegarde automatique, sans l'écraser.
+                </div>
+              </div>
+
+              <div className="ts-panel">
+                <div className="ts-panel-title"><History size={16} /> Sauvegardes précédentes</div>
+                {historyLoading && <div style={{ fontSize: 13, color: 'var(--muted)' }}>Chargement…</div>}
+                {!historyLoading && historyEntries.length === 0 && (
+                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucune sauvegarde pour le moment.</div>
+                )}
+                {!historyLoading && historyEntries.map((entry) => (
+                  <div key={entry.id} className="ts-team-row" style={{ justifyContent: 'space-between', background: 'var(--panel-alt)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px' }}>
+                    <div>
+                      <div style={{ fontFamily: 'Poppins', fontWeight: 600, fontSize: 14, color: 'var(--navy)' }}>{entry.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        {new Date(entry.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        {' à '}
+                        {new Date(entry.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                      <button className="ts-icon-btn" onClick={() => loadHistoryEntry(entry.id)} aria-label="Charger cette sauvegarde"><Download size={16} /></button>
+                      <button className="ts-icon-btn" onClick={() => { if (confirm(`Supprimer la sauvegarde "${entry.name}" ?`)) deleteHistoryEntry(entry.id); }} aria-label="Supprimer cette sauvegarde"><Trash2 size={16} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button className="ts-btn-ghost" onClick={goHome}><ArrowLeft size={15} /> Retour à l'accueil</button>
+            </>
+          )}
+
           {phase === 'settings' && (
             <>
               <div className="ts-panel">
